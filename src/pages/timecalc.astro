@@ -1,0 +1,365 @@
+---
+// Time calculator page
+import "../styles/timecalc.css"
+---
+
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Time Calculator</title>
+    <link rel="icon" href="/favicon.png" type="image/png" sizes="16x16" />
+  </head>
+  <body>
+    <div class="main-container">
+      <div class="header-row">
+        <h1>Time Calculator</h1>
+        <label class="toggle-switch" title="Switch between hour mode (H:MM:SS) and minute mode (M:SS)">
+          <span id="toggleLabel">Hour Mode</span>
+          <input type="checkbox" id="modeToggle" />
+          <span class="toggle-slider"></span>
+          <span id="toggleLabelRight" style="margin-left: 0.5em">Minute Mode</span>
+        </label>
+      </div>
+      <p class="subtitle" id="subtitle">
+        Enter time expressions like "1 hour + 2 min plus forty-five sec" or
+        "1:30 + 45 minutes" (1:30 = 1 hour 30 minutes)
+      </p>
+
+      <textarea
+        id="timeInput"
+        placeholder="Add times with + or - operators:
+1:30 + 45 minutes - 10 seconds
+
+Or add times on separate lines.
+
+Mode examples:
+Hour mode: 1:30 = 1 hour 30 minutes
+Minute mode: 1:30 = 1 minute 30 seconds"
+      ></textarea>
+
+      <div class="result-section">
+        <div class="result-formats">
+          <span class="format-label">H:MM:SS</span>
+          <div class="format-value" id="format-hms" title="Click to copy">
+            --:--:--
+          </div>
+
+          <span class="format-label">Hours</span>
+          <div class="format-value" id="format-hours" title="Click to copy">
+            -- hours
+          </div>
+
+          <span class="format-label">Minutes</span>
+          <div class="format-value" id="format-minutes" title="Click to copy">
+            -- minutes
+          </div>
+
+          <span class="format-label">Seconds</span>
+          <div class="format-value" id="format-seconds" title="Click to copy">
+            -- seconds
+          </div>
+
+          <span class="format-label">Decimal</span>
+          <div class="format-value" id="format-decimal" title="Click to copy">
+            -- hours
+          </div>
+        </div>
+
+        <div class="breakdown" id="breakdown">
+          Enter a time expression above to see the result
+        </div>
+      </div>
+    </div>
+
+    <div id="signature">Hendry Hu</div>
+
+    <script>
+      // Number word mappings
+      const numberWords: Record<string, number> = {
+        zero: 0,
+        one: 1,
+        two: 2,
+        three: 3,
+        four: 4,
+        five: 5,
+        six: 6,
+        seven: 7,
+        eight: 8,
+        nine: 9,
+        ten: 10,
+        eleven: 11,
+        twelve: 12,
+        thirteen: 13,
+        fourteen: 14,
+        fifteen: 15,
+        sixteen: 16,
+        seventeen: 17,
+        eighteen: 18,
+        nineteen: 19,
+        twenty: 20,
+        thirty: 30,
+        forty: 40,
+        fourty: 40,
+        fifty: 50,
+        sixty: 60,
+      };
+
+      interface ParseResult {
+        totalSeconds: number;
+        operations: string[];
+      }
+
+      function parseTimeExpression(input: string, isMinuteMode: boolean = false): ParseResult | null {
+        if (!input.trim()) return null;
+
+        try {
+          // First, check if we have multiple lines (newline-separated addition)
+          const lines = input.split('\n').map(line => line.trim()).filter(line => line);
+          
+          if (lines.length > 1) {
+            // Multiple lines - treat each as a separate time to add
+            let totalSeconds = 0;
+            const operations: string[] = [];
+            
+            for (const line of lines) {
+              const result = parseTimeExpression(line, isMinuteMode);
+              if (result) {
+                totalSeconds += result.totalSeconds;
+                operations.push(`+ ${formatSecondsDisplay(result.totalSeconds)}`);
+              }
+            }
+            
+            return {
+              totalSeconds: Math.max(0, totalSeconds),
+              operations: operations
+            };
+          }
+
+          // Single line - handle operators
+          // Normalize the input
+          let text = input
+            .toLowerCase()
+            .replace(/\s+/g, " ")
+            .replace(/[,;]/g, " ")
+            .trim();
+
+          // Replace word numbers with digits
+          Object.keys(numberWords).forEach((word) => {
+            const regex = new RegExp("\\b" + word + "\\b", "g");
+            text = text.replace(regex, numberWords[word].toString());
+          });
+
+          // Split by operators while keeping them
+          const tokens = text.split(/(\s*[\+\-]\s*)/).filter((t) => t.trim());
+
+          let totalSeconds = 0;
+          let currentSign = 1;
+          const operations: string[] = [];
+
+          for (let token of tokens) {
+            token = token.trim();
+
+            if (token === "+" || token.includes("+")) {
+              currentSign = 1;
+              continue;
+            } else if (token === "-" || token.includes("-")) {
+              currentSign = -1;
+              continue;
+            }
+
+            const seconds = parseTimeToken(token, isMinuteMode);
+            if (seconds !== null) {
+              totalSeconds += currentSign * seconds;
+              operations.push(
+                `${currentSign > 0 ? "+" : "-"} ${formatSecondsDisplay(Math.abs(seconds))}`
+              );
+            }
+          }
+
+          return {
+            totalSeconds: Math.max(0, totalSeconds),
+            operations: operations.slice(0), // Remove first + if exists
+          };
+        } catch (error) {
+          console.error("Parse error:", error);
+          return null;
+        }
+      }
+
+      function parseTimeToken(token: string, isMinuteMode: boolean = false): number | null {
+        let seconds = 0;
+
+        // Handle H:MM:SS or M:SS format
+        const timeFormatMatch = token.match(/(\d+):(\d+)(?::(\d+))?/);
+        if (timeFormatMatch) {
+          const [, first, second, third = "0"] = timeFormatMatch;
+          
+          if (isMinuteMode) {
+            // In minute mode: first is minutes, second is seconds, third is ignored
+            return parseInt(first) * 60 + parseInt(second);
+          } else {
+            // In hour mode: first is hours, second is minutes, third is seconds
+            return parseInt(first) * 3600 + parseInt(second) * 60 + parseInt(third);
+          }
+        }
+
+        // Extract all number + unit pairs
+        const patterns = [
+          /(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\b/g,
+          /(\d+(?:\.\d+)?)\s*(?:minutes?|mins?|m)\b/g,
+          /(\d+(?:\.\d+)?)\s*(?:seconds?|secs?|s)\b/g,
+        ];
+
+        const multipliers = [3600, 60, 1]; // hours, minutes, seconds
+
+        patterns.forEach((pattern, index) => {
+          let match;
+          while ((match = pattern.exec(token)) !== null) {
+            seconds += parseFloat(match[1]) * multipliers[index];
+          }
+        });
+
+        return seconds > 0 ? seconds : null;
+      }
+
+      interface FormattedTime {
+        hms: string;
+        hours: string;
+        minutes: string;
+        seconds: string;
+        decimal: string;
+      }
+
+      function formatTime(totalSeconds: number): FormattedTime {
+        if (totalSeconds < 0) totalSeconds = 0;
+
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = Math.floor(totalSeconds % 60);
+
+        return {
+          hms: `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`,
+          hours: `${hours} hour${hours !== 1 ? "s" : ""}`,
+          minutes: `${Math.floor(totalSeconds / 60)} minute${Math.floor(totalSeconds / 60) !== 1 ? "s" : ""}`,
+          seconds: `${Math.floor(totalSeconds)} second${Math.floor(totalSeconds) !== 1 ? "s" : ""}`,
+          decimal: `${(totalSeconds / 3600).toFixed(2)} hours`,
+        };
+      }
+
+      function formatSecondsDisplay(seconds: number): string {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = Math.floor(seconds % 60);
+
+        const parts: string[] = [];
+        if (h > 0) parts.push(`${h}h`);
+        if (m > 0) parts.push(`${m}m`);
+        if (s > 0) parts.push(`${s}s`);
+
+        return parts.join(" ") || "0s";
+      }
+
+      // DOM elements
+      const timeInput = document.getElementById(
+        "timeInput"
+      ) as HTMLTextAreaElement;
+      const formatHms = document.getElementById("format-hms") as HTMLElement;
+      const formatHours = document.getElementById(
+        "format-hours"
+      ) as HTMLElement;
+      const formatMinutes = document.getElementById(
+        "format-minutes"
+      ) as HTMLElement;
+      const formatSecondsEl = document.getElementById(
+        "format-seconds"
+      ) as HTMLElement;
+      const formatDecimal = document.getElementById(
+        "format-decimal"
+      ) as HTMLElement;
+      const breakdown = document.getElementById("breakdown") as HTMLElement;
+      const modeToggle = document.getElementById("modeToggle") as HTMLInputElement;
+      const subtitle = document.getElementById("subtitle") as HTMLElement;
+
+      function updateModeDisplay(): void {
+        if (modeToggle.checked) {
+          subtitle.textContent = 'Enter time expressions with operators (+/-) or put times on separate lines to add them. In minute mode: "1:30" = 1 minute 30 seconds';
+        } else {
+          subtitle.textContent = 'Enter time expressions with operators (+/-) or put times on separate lines to add them. In hour mode: "1:30" = 1 hour 30 minutes';
+        }
+      }
+
+      function updateResults(): void {
+        const input = timeInput.value;
+        const isMinuteMode = modeToggle.checked;
+        const result = parseTimeExpression(input, isMinuteMode);
+
+        if (!result) {
+          // Clear results
+          formatHms.textContent = "--:--:--";
+          formatHours.textContent = "-- hours";
+          formatMinutes.textContent = "-- minutes";
+          formatSecondsEl.textContent = "-- seconds";
+          formatDecimal.textContent = "-- hours";
+          breakdown.textContent = input.trim()
+            ? "Unable to parse time expression"
+            : "Enter a time expression above to see the result";
+          breakdown.className = "breakdown" + (input.trim() ? " error" : "");
+
+          document.querySelectorAll(".format-value").forEach((el) => {
+            el.classList.add("empty");
+          });
+          return;
+        }
+
+        const formatted = formatTime(result.totalSeconds);
+
+        formatHms.textContent = formatted.hms;
+        formatHours.textContent = formatted.hours;
+        formatMinutes.textContent = formatted.minutes;
+        formatSecondsEl.textContent = formatted.seconds;
+        formatDecimal.textContent = formatted.decimal;
+
+        breakdown.textContent =
+          result.operations.length > 1
+            ? `Calculation: ${result.operations.join(" ")}`
+            : "Time parsed successfully";
+        breakdown.className = "breakdown";
+
+        document.querySelectorAll(".format-value").forEach((el) => {
+          el.classList.remove("empty");
+        });
+      }
+
+      // Copy to clipboard functionality
+      document.querySelectorAll(".format-value").forEach((element) => {
+        element.addEventListener("click", () => {
+          if (element.classList.contains("empty")) return;
+
+          const text = element.textContent;
+          if (!text) return;
+
+          navigator.clipboard.writeText(text).then(() => {
+            const original = element.textContent;
+            element.textContent = "Copied!";
+            (element as HTMLElement).style.background = "#d4edda";
+            setTimeout(() => {
+              element.textContent = original;
+              (element as HTMLElement).style.background = "";
+            }, 1000);
+          });
+        });
+      });
+
+      timeInput.addEventListener("input", updateResults);
+      modeToggle.addEventListener("change", () => {
+        updateModeDisplay();
+        updateResults();
+      });
+
+      // Initial setup
+      updateModeDisplay();
+      updateResults();
+    </script>
+  </body>
+</html>
