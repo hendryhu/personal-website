@@ -8,11 +8,6 @@
     "preview": "astro preview",
     "astro": "astro"
   },
-  "pnpm": {
-    "overrides": {
-      "nanoid": "<3.3.18"
-    }
-  },
   "dependencies": {
     "astro": "^7.2.0"
   }
